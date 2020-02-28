@@ -1,7 +1,9 @@
-import numpy as np
 import warnings
-from shap.explainers.explainer import Explainer
 from distutils.version import LooseVersion
+
+import numpy as np
+from shap.explainers.explainer import Explainer
+
 keras = None
 tf = None
 tf_ops = None
@@ -47,7 +49,7 @@ class TFDeepExplainer(Explainer):
             batch norm or dropout. If None is passed then we look for tensors in the graph that look like
             learning phase flags (this works for Keras models). Note that we assume all the flags should
             have a value of False during predictions (and hence explanations).
-            
+
         """
 
         # warnings.warn(
@@ -105,10 +107,10 @@ class TFDeepExplainer(Explainer):
         if type(data) != list and (hasattr(data, '__call__')==False):
             data = [data]
         self.data = data
-        
+
         self._vinputs = {} # used to track what op inputs depends on the model inputs
         self.orig_grads = {}
-        
+
         # if we are not given a session find a default session
         if session is None:
             # if keras is installed and already has a session then use it
@@ -205,7 +207,7 @@ class TFDeepExplainer(Explainer):
             if hasattr(tf_gradients_impl, "_IsBackpropagatable"):
                 orig_IsBackpropagatable = tf_gradients_impl._IsBackpropagatable
                 tf_gradients_impl._IsBackpropagatable = lambda tensor: True
-            
+
             # define the computation graph for the attribution values using custom a gradient-like computation
             try:
                 out = self.model_output[:,i] if self.multi_output else self.model_output
@@ -275,11 +277,11 @@ class TFDeepExplainer(Explainer):
                 for l in range(len(X)):
                     phis[l][j] = (sample_phis[l][bg_data[l].shape[0]:] * (X[l][j] - bg_data[l])).mean(0)
 
-            output_phis.append(phis[0] if not self.multi_input else phis)
-        
+            output_phis.append(phis[0] if not self.multi_input else np.array(phis))
+
         if check_additivity:
             self.expected_value = self.run(self.model_output, self.model_inputs, self.data).mean(0)
-            model_output = self.run(self.model_output, self.model_inputs, X)
+            model_output, _ = self.run(self.model_output, self.model_inputs, X)
             for l in range(len(X)):
                 diffs = model_output[:, l] - self.expected_value[l] - output_phis[l].sum(axis=tuple(range(1, output_phis[l].ndim)))
                 assert np.abs(diffs).max() < 1e-4, "Explanations do not sum up to the model's output! Please post as a github issue."
@@ -445,7 +447,7 @@ def nonlinearity_1d_nonlinearity_2d(input_ind0, input_ind1, op_func):
             return nonlinearity_1d_handler(input_ind1, explainer, op, *grads)
         elif var[input_ind0] and var[input_ind1]:
             return nonlinearity_2d_handler(input_ind0, input_ind1, op_func, explainer, op, *grads)
-        else: 
+        else:
             return [None for _ in op.inputs] # no inputs vary, we must be hidden by a switch function
     return handler
 
@@ -460,7 +462,7 @@ def nonlinearity_1d_handler(input_ind, explainer, op, *grads):
     for i in range(len(op.inputs)):
         if i != input_ind:
             assert not explainer._variable_inputs(op)[i], str(i) + "th input to " + op.name + " cannot vary!"
-    
+
     xin0,rin0 = tf.split(op.inputs[input_ind], 2)
     xout,rout = tf.split(op.outputs[input_ind], 2)
     delta_in0 = xin0 - rin0
@@ -533,7 +535,7 @@ def passthrough(explainer, op, *grads):
 
 def break_dependence(explainer, op, *grads):
     """ This function name is used to break attribution dependence in the graph traversal.
-     
+
     These operation types may be connected above input data values in the graph but their outputs
     don't depend on the input values (for example they just depend on the shape).
     """
